@@ -41,7 +41,8 @@ def init_database():
     CREATE TABLE IF NOT EXISTS Leaders (
         name TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL,
-        telegram_id INTEGER
+        telegram_id INTEGER,
+        is_admin BOOLEAN DEFAULT FALSE
     )
     ''')
     
@@ -63,11 +64,17 @@ def init_database():
     if cursor.fetchone()[0] == 0:
         try:
             members_df = pd.read_excel(members_excel_path)
+            # Clean the data
+            members_df = members_df.dropna(subset=['Name '])  # Remove rows with empty names
+            members_df['Name '] = members_df['Name '].astype(str).str.strip()  # Clean names
+            members_df['Whatsapp Number '] = members_df['Whatsapp Number '].astype(str).str.strip()  # Clean numbers
+            
             for _, row in members_df.iterrows():
-                cursor.execute("""
-                    INSERT OR IGNORE INTO Members (name, whatsapp)
-                    VALUES (?, ?)
-                """, (row['Name '], row['Whatsapp Number ']))
+                if row['Name '] and row['Name '] != 'nan':  # Only insert if name is not empty
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO Members (name, whatsapp)
+                        VALUES (?, ?)
+                    """, (row['Name '], row['Whatsapp Number '] if pd.notna(row['Whatsapp Number ']) else ''))
             conn.commit()
         except Exception as e:
             st.error(f"Error initializing members: {str(e)}")
@@ -75,14 +82,16 @@ def init_database():
     # تحديث أو إضافة القادة من الإكسل كل مرة
     try:
         leaders_df = pd.read_excel(leaders_excel_path)
-        for _, leader in leaders_df.iterrows():
+        for i, leader in leaders_df.iterrows():
             cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (leader['Name'],))
             if cursor.fetchone()[0] == 0:
                 password_hash = hash_password(leader['Name'].lower())
+                # Set first leader as admin, others as non-admin
+                is_admin = True if i == 0 else False
                 cursor.execute("""
-                    INSERT OR IGNORE INTO Leaders (name, password_hash, telegram_id)
-                    VALUES (?, ?, ?)
-                """, (leader['Name'], password_hash, 5440702961))
+                    INSERT OR IGNORE INTO Leaders (name, password_hash, telegram_id, is_admin)
+                    VALUES (?, ?, ?, ?)
+                """, (leader['Name'], password_hash, 5440702961, is_admin))
         conn.commit()
     except Exception as e:
         st.error(f"Error syncing leaders: {str(e)}")
@@ -110,12 +119,12 @@ except Exception as e:
     st.error(f"Error loading members: {str(e)}")
     members_df = pd.DataFrame(columns=['Name ', 'Whatsapp Number '])
 
-# Load leaders data from Excel
+# Load leaders data from database instead of Excel
 try:
-    leaders_df = pd.read_excel(leaders_excel_path)
+    leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
 except Exception as e:
     st.error(f"Error loading leaders: {str(e)}")
-    leaders_df = pd.DataFrame(columns=['Name'])
+    leaders_df = pd.DataFrame(columns=['name'])
 
 # Function to save requests to Excel
 def save_to_excel(requests_df):
@@ -145,7 +154,7 @@ bot = Bot(token=TELEGRAM_BOT_TOKEN)
 if not st.session_state.logged_in:
     st.title("🔐 Login")
     
-    leader_name = st.selectbox("Select Your Name:", leaders_df['Name'])
+    leader_name = st.selectbox("Select Your Name:", leaders_df['name'])
     password = st.text_input("Password:", type="password")
     
     change_pw = st.checkbox("Change Password?")
@@ -189,6 +198,96 @@ if st.session_state.logged_in:
         st.session_state.current_leader = None
         st.rerun()
     
+    # Add new leader section in sidebar (admin only)
+    if st.session_state.current_leader:
+        cursor.execute("SELECT is_admin FROM Leaders WHERE name = ?", (st.session_state.current_leader,))
+        result = cursor.fetchone()
+        is_admin = result[0] if result else False
+        
+        if is_admin:
+            st.sidebar.title("Leader Management")
+            
+            # Add new leader section
+            st.sidebar.subheader("Add New Leader")
+            new_leader_name = st.sidebar.text_input("Leader Name")
+            new_leader_telegram_id = st.sidebar.text_input("Telegram ID")
+            
+            if st.sidebar.button("Add Leader"):
+                if new_leader_name and new_leader_telegram_id:
+                    try:
+                        # Check if leader already exists
+                        cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (new_leader_name,))
+                        count = cursor.fetchone()[0]
+                        st.sidebar.write(f"Debug: Leader count = {count}")
+                        
+                        if count == 0:
+                            # Hash the leader's name as initial password
+                            password_hash = hash_password(new_leader_name.lower())
+                            # Insert new leader
+                            cursor.execute("""
+                                INSERT INTO Leaders (name, password_hash, telegram_id, is_admin)
+                                VALUES (?, ?, ?, ?)
+                            """, (new_leader_name, password_hash, int(new_leader_telegram_id), False))
+                            conn.commit()
+                            
+                            # Verify the insertion
+                            cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (new_leader_name,))
+                            verify_count = cursor.fetchone()[0]
+                            st.sidebar.write(f"Debug: After insertion count = {verify_count}")
+                            
+                            if verify_count > 0:
+                                st.sidebar.success(f"✅ Leader {new_leader_name} added successfully!")
+                                st.sidebar.info(f"Initial password is their name in lowercase")
+                                # Refresh leaders list
+                                leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
+                                st.rerun()
+                            else:
+                                st.sidebar.error("❌ Failed to add leader!")
+                        else:
+                            st.sidebar.error("❌ Leader already exists!")
+                    except Exception as e:
+                        st.sidebar.error(f"❌ Error adding leader: {str(e)}")
+                        st.sidebar.write(f"Debug: Exception details: {str(e)}")
+                else:
+                    st.sidebar.error("❌ Please fill in all fields!")
+            
+            # Remove leader section
+            st.sidebar.subheader("Remove Leader")
+            remove_leader_name = st.sidebar.selectbox(
+                "Select Leader to Remove:",
+                leaders_df[leaders_df['name'] != st.session_state.current_leader]['name']
+            )
+            
+            if st.sidebar.button("Remove Leader"):
+                if remove_leader_name:
+                    try:
+                        # Check if leader exists
+                        cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (remove_leader_name,))
+                        count = cursor.fetchone()[0]
+                        
+                        if count > 0:
+                            # Delete leader
+                            cursor.execute("DELETE FROM Leaders WHERE name = ?", (remove_leader_name,))
+                            conn.commit()
+                            
+                            # Verify deletion
+                            cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (remove_leader_name,))
+                            verify_count = cursor.fetchone()[0]
+                            
+                            if verify_count == 0:
+                                st.sidebar.success(f"✅ Leader {remove_leader_name} removed successfully!")
+                                # Refresh leaders list
+                                leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
+                                st.rerun()
+                            else:
+                                st.sidebar.error("❌ Failed to remove leader!")
+                        else:
+                            st.sidebar.error("❌ Leader not found!")
+                    except Exception as e:
+                        st.sidebar.error(f"❌ Error removing leader: {str(e)}")
+                else:
+                    st.sidebar.error("❌ Please select a leader to remove!")
+    
     # Select member
     st.subheader("Select Member")
     selected_member = st.selectbox("Select Member:", members_df['Name '])
@@ -202,13 +301,13 @@ if st.session_state.logged_in:
 
     # Select receiving leader
     st.subheader("Select who will receive the request")
-    assigned_to = st.selectbox("Send to:", leaders_df['Name'])
+    assigned_to = st.selectbox("Send to:", leaders_df['name'])
 
     # Submit button
     if st.button("Submit Request") and selected_member:
         # Get IDs from names
         member_id = members_df[members_df['Name '] == selected_member].index[0]
-        assigned_to_id = leaders_df[leaders_df['Name'] == assigned_to].index[0]
+        assigned_to_id = leaders_df[leaders_df['name'] == assigned_to].index[0]
 
         # Insert into RequestHistory table with all details
         cursor.execute("""
@@ -239,9 +338,15 @@ if st.session_state.logged_in:
         """
         
         try:
-            # Send message to the leader's Telegram ID
-            asyncio.run(bot.send_message(chat_id=5440702961, text=message))
-            st.success("✅ Request submitted and sent via Telegram successfully!")
+            # Get the assigned leader's Telegram ID
+            cursor.execute("SELECT telegram_id FROM Leaders WHERE name = ?", (assigned_to,))
+            result = cursor.fetchone()
+            if result and result[0]:
+                # Send message to the assigned leader's Telegram ID
+                asyncio.run(bot.send_message(chat_id=result[0], text=message))
+                st.success("✅ Request submitted and sent via Telegram successfully!")
+            else:
+                st.warning("⚠️ Telegram ID not found for the assigned leader. Message not sent.")
         except Exception as e:
             st.error(f"❌ Request submitted but failed to send via Telegram: {str(e)}")
 
