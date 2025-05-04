@@ -148,17 +148,36 @@ if not st.session_state.logged_in:
     leader_name = st.selectbox("Select Your Name:", leaders_df['Name'])
     password = st.text_input("Password:", type="password")
     
-    if st.button("Login"):
-        cursor.execute("SELECT password_hash FROM Leaders WHERE name = ?", (leader_name,))
-        result = cursor.fetchone()
-        
-        if result and verify_password(result[0], password):
-            st.session_state.logged_in = True
-            st.session_state.current_leader = leader_name
-            st.success("✅ Login successful!")
-            st.rerun()
-        else:
-            st.error("❌ Invalid password!")
+    change_pw = st.checkbox("Change Password?")
+    if change_pw:
+        old_password = st.text_input("Old Password", type="password")
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm New Password", type="password")
+        if st.button("Update Password"):
+            cursor.execute("SELECT password_hash FROM Leaders WHERE name = ?", (leader_name,))
+            result = cursor.fetchone()
+            if result and verify_password(result[0], old_password):
+                if new_password == confirm_password and new_password.strip() != "":
+                    new_hash = hash_password(new_password)
+                    cursor.execute("UPDATE Leaders SET password_hash = ? WHERE name = ?", (new_hash, leader_name))
+                    conn.commit()
+                    st.success("✅ Password updated successfully! Please login with your new password.")
+                else:
+                    st.error("❌ New passwords do not match or are empty.")
+            else:
+                st.error("❌ Old password is incorrect.")
+    else:
+        if st.button("Login"):
+            cursor.execute("SELECT password_hash FROM Leaders WHERE name = ?", (leader_name,))
+            result = cursor.fetchone()
+            
+            if result and verify_password(result[0], password):
+                st.session_state.logged_in = True
+                st.session_state.current_leader = leader_name
+                st.success("✅ Login successful!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid password!")
 
 # Main application
 if st.session_state.logged_in:
