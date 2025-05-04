@@ -72,20 +72,20 @@ def init_database():
         except Exception as e:
             st.error(f"Error initializing members: {str(e)}")
     
-    # Initialize Leaders table if empty
-    cursor.execute("SELECT COUNT(*) FROM Leaders")
-    if cursor.fetchone()[0] == 0:
-        try:
-            leaders_df = pd.read_excel(leaders_excel_path)
-            for _, leader in leaders_df.iterrows():
+    # تحديث أو إضافة القادة من الإكسل كل مرة
+    try:
+        leaders_df = pd.read_excel(leaders_excel_path)
+        for _, leader in leaders_df.iterrows():
+            cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (leader['Name'],))
+            if cursor.fetchone()[0] == 0:
                 password_hash = hash_password(leader['Name'].lower())
                 cursor.execute("""
                     INSERT OR IGNORE INTO Leaders (name, password_hash, telegram_id)
                     VALUES (?, ?, ?)
                 """, (leader['Name'], password_hash, 5440702961))
-            conn.commit()
-        except Exception as e:
-            st.error(f"Error initializing leaders: {str(e)}")
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error syncing leaders: {str(e)}")
     
     return conn
 
