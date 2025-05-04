@@ -152,7 +152,7 @@ bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
 # Login page
 if not st.session_state.logged_in:
-    st.title("🔐 Login")
+    st.title("Login")
     
     leader_name = st.selectbox("Select Your Name:", leaders_df['name'])
     password = st.text_input("Password:", type="password")
@@ -170,11 +170,11 @@ if not st.session_state.logged_in:
                     new_hash = hash_password(new_password)
                     cursor.execute("UPDATE Leaders SET password_hash = ? WHERE name = ?", (new_hash, leader_name))
                     conn.commit()
-                    st.success("✅ Password updated successfully! Please login with your new password.")
+                    st.success("Password updated successfully! Please login with your new password.")
                 else:
-                    st.error("❌ New passwords do not match or are empty.")
+                    st.error("New passwords do not match or are empty.")
             else:
-                st.error("❌ Old password is incorrect.")
+                st.error("Old password is incorrect.")
     else:
         if st.button("Login"):
             cursor.execute("SELECT password_hash FROM Leaders WHERE name = ?", (leader_name,))
@@ -183,14 +183,14 @@ if not st.session_state.logged_in:
             if result and verify_password(result[0], password):
                 st.session_state.logged_in = True
                 st.session_state.current_leader = leader_name
-                st.success("✅ Login successful!")
+                st.success("Login successful!")
                 st.rerun()
             else:
-                st.error("❌ Invalid password!")
+                st.error("Invalid password!")
 
 # Main application
 if st.session_state.logged_in:
-    st.title("📋 Request Submission System - Snake Chaos House")
+    st.title("Request Submission System - Snake Chaos House")
     
     # Logout button
     if st.sidebar.button("Logout"):
@@ -218,7 +218,6 @@ if st.session_state.logged_in:
                         # Check if leader already exists
                         cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (new_leader_name,))
                         count = cursor.fetchone()[0]
-                        st.sidebar.write(f"Debug: Leader count = {count}")
                         
                         if count == 0:
                             # Hash the leader's name as initial password
@@ -229,27 +228,17 @@ if st.session_state.logged_in:
                                 VALUES (?, ?, ?, ?)
                             """, (new_leader_name, password_hash, int(new_leader_telegram_id), False))
                             conn.commit()
-                            
-                            # Verify the insertion
-                            cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (new_leader_name,))
-                            verify_count = cursor.fetchone()[0]
-                            st.sidebar.write(f"Debug: After insertion count = {verify_count}")
-                            
-                            if verify_count > 0:
-                                st.sidebar.success(f"✅ Leader {new_leader_name} added successfully!")
-                                st.sidebar.info(f"Initial password is their name in lowercase")
-                                # Refresh leaders list
-                                leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
-                                st.rerun()
-                            else:
-                                st.sidebar.error("❌ Failed to add leader!")
+                            st.sidebar.success(f"Leader {new_leader_name} added successfully!")
+                            st.sidebar.info("Initial password is their name in lowercase")
+                            # Refresh leaders list
+                            leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
+                            st.rerun()
                         else:
-                            st.sidebar.error("❌ Leader already exists!")
+                            st.sidebar.error("Leader already exists!")
                     except Exception as e:
-                        st.sidebar.error(f"❌ Error adding leader: {str(e)}")
-                        st.sidebar.write(f"Debug: Exception details: {str(e)}")
+                        st.sidebar.error(f"Error adding leader: {str(e)}")
                 else:
-                    st.sidebar.error("❌ Please fill in all fields!")
+                    st.sidebar.error("Please fill in all fields!")
             
             # Remove leader section
             st.sidebar.subheader("Remove Leader")
@@ -269,24 +258,43 @@ if st.session_state.logged_in:
                             # Delete leader
                             cursor.execute("DELETE FROM Leaders WHERE name = ?", (remove_leader_name,))
                             conn.commit()
-                            
-                            # Verify deletion
-                            cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (remove_leader_name,))
-                            verify_count = cursor.fetchone()[0]
-                            
-                            if verify_count == 0:
-                                st.sidebar.success(f"✅ Leader {remove_leader_name} removed successfully!")
-                                # Refresh leaders list
-                                leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
-                                st.rerun()
-                            else:
-                                st.sidebar.error("❌ Failed to remove leader!")
+                            st.sidebar.success(f"Leader {remove_leader_name} removed successfully!")
+                            # Refresh leaders list
+                            leaders_df = pd.read_sql_query("SELECT name FROM Leaders", conn)
+                            st.rerun()
                         else:
-                            st.sidebar.error("❌ Leader not found!")
+                            st.sidebar.error("Leader not found!")
                     except Exception as e:
-                        st.sidebar.error(f"❌ Error removing leader: {str(e)}")
+                        st.sidebar.error(f"Error removing leader: {str(e)}")
                 else:
-                    st.sidebar.error("❌ Please select a leader to remove!")
+                    st.sidebar.error("Please select a leader to remove!")
+            
+            # Make leader admin section
+            st.sidebar.subheader("Make Leader Admin")
+            admin_leader_name = st.sidebar.selectbox(
+                "Select Leader to Make Admin:",
+                leaders_df[leaders_df['name'] != st.session_state.current_leader]['name']
+            )
+            
+            if st.sidebar.button("Make Admin"):
+                if admin_leader_name:
+                    try:
+                        # Check if leader exists
+                        cursor.execute("SELECT COUNT(*) FROM Leaders WHERE name = ?", (admin_leader_name,))
+                        count = cursor.fetchone()[0]
+                        
+                        if count > 0:
+                            # Update leader to admin
+                            cursor.execute("UPDATE Leaders SET is_admin = TRUE WHERE name = ?", (admin_leader_name,))
+                            conn.commit()
+                            st.sidebar.success(f"Leader {admin_leader_name} is now an admin!")
+                            st.rerun()
+                        else:
+                            st.sidebar.error("Leader not found!")
+                    except Exception as e:
+                        st.sidebar.error(f"Error making leader admin: {str(e)}")
+                else:
+                    st.sidebar.error("Please select a leader to make admin!")
     
     # Select member
     st.subheader("Select Member")
@@ -305,10 +313,6 @@ if st.session_state.logged_in:
 
     # Submit button
     if st.button("Submit Request") and selected_member:
-        # Get IDs from names
-        member_id = members_df[members_df['Name '] == selected_member].index[0]
-        assigned_to_id = leaders_df[leaders_df['name'] == assigned_to].index[0]
-
         # Insert into RequestHistory table with all details
         cursor.execute("""
             INSERT INTO RequestHistory (
@@ -327,14 +331,14 @@ if st.session_state.logged_in:
 
         # Send message via Telegram
         message = f"""
-📋 New Request Submitted
+New Request Submitted
 
-👤 Member: {selected_member}
-📱 WhatsApp: {member_whatsapp}
-📝 Description: {description}
-👨‍💼 Submitted by: {st.session_state.current_leader}
-🎯 Assigned to: {assigned_to}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Member: {selected_member}
+WhatsApp: {member_whatsapp}
+Description: {description}
+Submitted by: {st.session_state.current_leader}
+Assigned to: {assigned_to}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         """
         
         try:
@@ -344,67 +348,81 @@ if st.session_state.logged_in:
             if result and result[0]:
                 # Send message to the assigned leader's Telegram ID
                 asyncio.run(bot.send_message(chat_id=result[0], text=message))
-                st.success("✅ Request submitted and sent via Telegram successfully!")
+                st.success("Request submitted and sent via Telegram successfully!")
             else:
-                st.warning("⚠️ Telegram ID not found for the assigned leader. Message not sent.")
+                st.warning("Telegram ID not found for the assigned leader. Message not sent.")
         except Exception as e:
-            st.error(f"❌ Request submitted but failed to send via Telegram: {str(e)}")
+            st.error(f"Request submitted but failed to send via Telegram: {str(e)}")
 
     # Show request history
-    st.subheader("Request History")
-    history_df = pd.read_sql_query("SELECT * FROM RequestHistory ORDER BY created_at DESC", conn)
-
-    # Add status update functionality for assigned leaders
-    if not history_df.empty:
-        st.subheader("Update Request Status")
+    st.title("Request History")
+    
+    # Create two tabs
+    tab1, tab2 = st.tabs(["All Requests", "My Assigned Requests"])
+    
+    with tab1:
+        st.subheader("All Requests")
+        all_requests_df = pd.read_sql_query("SELECT * FROM RequestHistory ORDER BY created_at DESC", conn)
+        st.dataframe(all_requests_df)
         
+        # Add download button for all requests
+        if os.path.exists(requests_excel_path):
+            with open(requests_excel_path, 'rb') as f:
+                st.download_button(
+                    label="Download All Requests History",
+                    data=f,
+                    file_name="all_requests_history.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+    
+    with tab2:
+        st.subheader("My Assigned Requests")
         # Filter requests assigned to the current leader
-        leader_requests = history_df[history_df['assigned_to'] == st.session_state.current_leader]
+        my_requests_df = pd.read_sql_query("""
+            SELECT * FROM RequestHistory 
+            WHERE assigned_to = ? 
+            ORDER BY created_at DESC
+        """, conn, params=[st.session_state.current_leader])
         
-        if not leader_requests.empty:
+        st.dataframe(my_requests_df)
+        
+        # Add status update functionality for assigned requests
+        if not my_requests_df.empty:
+            st.subheader("Update Request Status")
+            
             selected_request = st.selectbox(
                 "Select Request to Update:",
-                leader_requests['member_name'] + " - " + leader_requests['created_at'].astype(str)
+                my_requests_df['member_name'] + " - " + my_requests_df['created_at'].astype(str)
             )
             
-            # Get the selected request's index
-            selected_index = leader_requests[leader_requests['member_name'] + " - " + leader_requests['created_at'].astype(str) == selected_request].index[0]
-            
-            # Status options
-            status_options = ['Pending', 'In Progress', 'Completed', 'Rejected']
-            new_status = st.selectbox("New Status:", status_options)
-            
-            if st.button("Update Status"):
-                # Update the status in the database
-                cursor.execute("""
-                    UPDATE RequestHistory 
-                    SET status = ? 
-                    WHERE member_name = ? AND created_at = ?
-                """, (new_status, 
-                      leader_requests.iloc[selected_index]['member_name'],
-                      leader_requests.iloc[selected_index]['created_at']))
-                conn.commit()
+            try:
+                selected_index = my_requests_df[my_requests_df['member_name'] + " - " + my_requests_df['created_at'].astype(str) == selected_request].index[0]
                 
-                # Save to Excel after status update
-                history_df = pd.read_sql_query("SELECT * FROM RequestHistory ORDER BY created_at DESC", conn)
-                save_to_excel(history_df)
+                # Status options
+                status_options = ['Pending', 'In Progress', 'Completed', 'Rejected']
+                new_status = st.selectbox("New Status:", status_options)
                 
-                st.success(f"✅ Status updated to {new_status} successfully!")
+                if st.button("Update Status"):
+                    # Update the status in the database
+                    cursor.execute("""
+                        UPDATE RequestHistory 
+                        SET status = ? 
+                        WHERE member_name = ? AND created_at = ?
+                    """, (new_status, 
+                          my_requests_df.iloc[selected_index]['member_name'],
+                          my_requests_df.iloc[selected_index]['created_at']))
+                    conn.commit()
+                    
+                    # Save to Excel after status update
+                    history_df = pd.read_sql_query("SELECT * FROM RequestHistory ORDER BY created_at DESC", conn)
+                    save_to_excel(history_df)
+                    st.success("Status updated successfully!")
+            except IndexError:
+                st.error("No matching request found. Please select a valid request.")
+            except Exception as e:
+                st.error(f"An error occurred while updating the status: {str(e)}")
         else:
             st.info("You don't have any assigned requests to update.")
-
-    # Display the history table
-    st.dataframe(history_df)
-
-    # Add download button for Excel file
-    if os.path.exists(requests_excel_path):
-        with open(requests_excel_path, 'rb') as f:
-            st.download_button(
-                label="Download Requests History",
-                data=f,
-                file_name="requests_history.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
 
 conn.close()
 
