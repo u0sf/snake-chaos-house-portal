@@ -23,6 +23,5 @@ venv.bak/
 Thumbs.db
 
 # Project specific
-data/
-*.db
+data/club_database.db
 *.xlsx 

@@ -12,15 +12,110 @@ import secrets
 # Telegram Bot Token
 TELEGRAM_BOT_TOKEN = "8086690351:AAGw6YPEFcguK-WH_IWp-dXM7sKl_M_1nf4"
 
-# Get the absolute path to the database and Excel file
+# Get the absolute path to the database and Excel files
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_dir = os.path.join(base_dir, 'data')
 os.makedirs(data_dir, exist_ok=True)
 
 db_path = os.path.join(data_dir, 'club_database.db')
-leaders_excel_path = os.path.join(data_dir, 'dataleaders_data.xlsx')
 requests_excel_path = os.path.join(data_dir, 'requests_history.xlsx')
-members_excel_path = os.path.join(data_dir, 'SnakeChaosHouse Members.xlsx')
+leaders_excel_path = os.path.join(base_dir, 'dataleaders_data.xlsx')
+members_excel_path = os.path.join(base_dir, 'SnakeChaosHouse Members.xlsx')
+
+# Initialize database and tables
+def init_database():
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Create Members table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS Members (
+        name TEXT,
+        whatsapp TEXT,
+        PRIMARY KEY (name)
+    )
+    ''')
+    
+    # Create Leaders table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS Leaders (
+        name TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL,
+        telegram_id INTEGER
+    )
+    ''')
+    
+    # Create RequestHistory table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS RequestHistory (
+        member_name TEXT,
+        member_whatsapp TEXT,
+        submitted_by TEXT,
+        description TEXT,
+        assigned_to TEXT,
+        created_at TIMESTAMP,
+        status TEXT DEFAULT 'Pending'
+    )
+    ''')
+    
+    # Initialize Members table if empty
+    cursor.execute("SELECT COUNT(*) FROM Members")
+    if cursor.fetchone()[0] == 0:
+        try:
+            members_df = pd.read_excel(members_excel_path)
+            for _, row in members_df.iterrows():
+                cursor.execute("""
+                    INSERT OR IGNORE INTO Members (name, whatsapp)
+                    VALUES (?, ?)
+                """, (row['Name '], row['Whatsapp Number ']))
+            conn.commit()
+        except Exception as e:
+            st.error(f"Error initializing members: {str(e)}")
+    
+    # Initialize Leaders table if empty
+    cursor.execute("SELECT COUNT(*) FROM Leaders")
+    if cursor.fetchone()[0] == 0:
+        try:
+            leaders_df = pd.read_excel(leaders_excel_path)
+            for _, leader in leaders_df.iterrows():
+                password_hash = hash_password(leader['Name'].lower())
+                cursor.execute("""
+                    INSERT OR IGNORE INTO Leaders (name, password_hash, telegram_id)
+                    VALUES (?, ?, ?)
+                """, (leader['Name'], password_hash, 5440702961))
+            conn.commit()
+        except Exception as e:
+            st.error(f"Error initializing leaders: {str(e)}")
+    
+    return conn
+
+# Function to hash passwords
+def hash_password(password):
+    salt = secrets.token_hex(16)
+    return hashlib.sha256((password + salt).encode()).hexdigest() + ':' + salt
+
+# Function to verify password
+def verify_password(stored_password, provided_password):
+    password_hash, salt = stored_password.split(':')
+    return password_hash == hashlib.sha256((provided_password + salt).encode()).hexdigest()
+
+# Initialize database
+conn = init_database()
+cursor = conn.cursor()
+
+# Load members data from Excel
+try:
+    members_df = pd.read_excel(members_excel_path)
+except Exception as e:
+    st.error(f"Error loading members: {str(e)}")
+    members_df = pd.DataFrame(columns=['Name ', 'Whatsapp Number '])
+
+# Load leaders data from Excel
+try:
+    leaders_df = pd.read_excel(leaders_excel_path)
+except Exception as e:
+    st.error(f"Error loading leaders: {str(e)}")
+    leaders_df = pd.DataFrame(columns=['Name'])
 
 # Function to save requests to Excel
 def save_to_excel(requests_df):
@@ -37,65 +132,11 @@ def save_to_excel(requests_df):
     except Exception as e:
         st.error(f"Error saving to Excel: {str(e)}")
 
-# Connect to database
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-
-# Create Leaders table if it doesn't exist
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS Leaders (
-    name TEXT PRIMARY KEY,
-    password_hash TEXT NOT NULL,
-    telegram_id INTEGER
-)
-''')
-
-# Create RequestHistory table if it doesn't exist
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS RequestHistory (
-    member_name TEXT,
-    member_whatsapp TEXT,
-    submitted_by TEXT,
-    description TEXT,
-    assigned_to TEXT,
-    created_at TIMESTAMP,
-    status TEXT DEFAULT 'Pending'
-)
-''')
-
-# Function to hash passwords
-def hash_password(password):
-    salt = secrets.token_hex(16)
-    return hashlib.sha256((password + salt).encode()).hexdigest() + ':' + salt
-
-# Function to verify password
-def verify_password(stored_password, provided_password):
-    password_hash, salt = stored_password.split(':')
-    return password_hash == hashlib.sha256((provided_password + salt).encode()).hexdigest()
-
 # Initialize session state for login
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_leader' not in st.session_state:
     st.session_state.current_leader = None
-
-# Load members data from database
-members_df = pd.read_sql_query("SELECT * FROM Members", conn)
-
-# Load leaders data from Excel
-leaders_df = pd.read_excel(leaders_excel_path)
-
-# Initialize leaders in database if not exists
-cursor.execute("SELECT COUNT(*) FROM Leaders")
-if cursor.fetchone()[0] == 0:
-    for _, leader in leaders_df.iterrows():
-        # Default password is the leader's name in lowercase
-        password_hash = hash_password(leader['Name'].lower())
-        cursor.execute("""
-            INSERT INTO Leaders (name, password_hash, telegram_id)
-            VALUES (?, ?, ?)
-        """, (leader['Name'], password_hash, 5440702961))
-    conn.commit()
 
 # Initialize Telegram bot
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
