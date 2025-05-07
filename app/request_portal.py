@@ -139,18 +139,21 @@ def init_members_from_excel(conn):
         cursor = conn.cursor()
         # Read members data from Excel
         members_df = pd.read_excel(members_excel_path)
+        
         # Clean the data
         members_df = members_df.dropna(subset=['Name '])  # Remove rows with empty names
-        members_df['Name '] = members_df['Name '].astype(str).str.strip()  # Clean names
-        members_df['Whatsapp Number '] = members_df['Whatsapp Number '].astype(str).str.strip()  # Clean numbers
-        members_df['Main Email'] = members_df['Main Email'].astype(str).str.strip()  # Clean emails
+        
+        # Convert columns to string and handle NaN values
+        members_df['Name '] = members_df['Name '].fillna('').astype(str).str.strip()
+        members_df['Whatsapp Number '] = members_df['Whatsapp Number '].fillna('').astype(str).str.strip()
+        members_df['Main Email'] = members_df['Main Email'].fillna('').astype(str).str.strip()
         
         print("\nDebug - Members data from Excel:")
         print(members_df[['Name ', 'Main Email']].head())
         
         # Read email and password data
         try:
-            email_df = pd.read_excel("emaildb_with_passwords.xlsx")
+            email_df = pd.read_excel("EmailDB_with_Passwords.xlsx")
             print("\nDebug - Email data loaded successfully")
             print("Columns in email file:", email_df.columns.tolist())
         except Exception as e:
