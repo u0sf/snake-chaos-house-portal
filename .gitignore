@@ -24,4 +24,4 @@ Thumbs.db
 
 # Project specific
 data/club_database.db
-*.xlsx 
+~$*.xlsx  # Temporary Excel files 
